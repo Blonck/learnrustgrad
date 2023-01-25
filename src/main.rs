@@ -35,10 +35,12 @@ fn main() {
     let x1w1x2w2 = &x1w1 + &x2w2;
 
     let n = &x1w1x2w2 + &b;
-    let o = n.tanh();
+    let o = n.powi(2);
+    let p = o.tanh();
 
-    *o.grad.borrow_mut() = 1.0;
+    *p.grad.borrow_mut() = 1.0;
 
+    p.calc_grad();
     o.calc_grad();
     n.calc_grad();
     x1w1x2w2.calc_grad();

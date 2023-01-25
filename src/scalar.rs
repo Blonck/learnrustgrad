@@ -11,7 +11,9 @@ use ptree::TreeItem;
 pub enum ScalarOp {
     None,
     Add,
+    Div,
     Mul,
+    Powi(i32),
     Tanh,
 }
 
@@ -21,7 +23,9 @@ impl fmt::Display for ScalarOp {
             ScalarOp::None => write!(f, ""),
             ScalarOp::Add => write!(f, "+"),
             ScalarOp::Mul => write!(f, "*"),
+            ScalarOp::Powi(i) => write!(f, "powi({})", i),
             ScalarOp::Tanh => write!(f, "tanh"),
+            ScalarOp::Div => write!(f, "/"),
         }
     }
 }
@@ -78,6 +82,16 @@ impl<'a> Scalar<'a> {
                 let rhs = self.rhs_parent.unwrap();
 
                 let old_lgrad = lhs.grad.borrow().clone();
+                *lhs.grad.borrow_mut() = old_lgrad + *self.grad.borrow() / rhs.val;
+
+                let old_rgrad = rhs.grad.borrow().clone();
+                *rhs.grad.borrow_mut() = old_rgrad + *self.grad.borrow() * lhs.val * rhs.val.powi(-2);
+            }
+            ScalarOp::Div => {
+                let lhs = self.lhs_parent.unwrap();
+                let rhs = self.rhs_parent.unwrap();
+
+                let old_lgrad = lhs.grad.borrow().clone();
                 *lhs.grad.borrow_mut() = old_lgrad + *self.grad.borrow() * rhs.val;
 
                 let old_rgrad = rhs.grad.borrow().clone();
@@ -85,10 +99,15 @@ impl<'a> Scalar<'a> {
             }
             ScalarOp::Tanh => {
                 let lhs = self.lhs_parent.unwrap();
-
                 let old_lgrad = lhs.grad.borrow().clone();
 
                 *lhs.grad.borrow_mut() = old_lgrad + (1.0 - self.val * self.val) * (*self.grad.borrow());
+            }
+            ScalarOp::Powi(i) => {
+                let lhs = self.lhs_parent.unwrap();
+                let old_lgrad = lhs.grad.borrow().clone();
+
+                *lhs.grad.borrow_mut() = old_lgrad + (lhs.val.powi(i - 1)) * (*self.grad.borrow());
             }
             _ => {}
         }
@@ -156,6 +175,25 @@ impl<'a> Scalar<'a> {
         Scalar::new_with_parents(self.val.tanh(), Some(self), None, ScalarOp::Tanh)
     }
 }
+
+impl<'a> Scalar<'a> {
+    pub fn powi(&'a self, n: i32) -> Scalar<'a> {
+        Scalar::new_with_parents(self.val.powi(n), Some(self), None, ScalarOp::Powi(n))
+    }
+}
+
+impl<'a> ops::Div for &'a Scalar<'a> {
+    type Output = Scalar<'a>;
+
+    fn div(self, rhs: &'a Scalar) -> Self::Output {
+        Scalar::new_with_parents(self.val / rhs.val, Some(self), Some(rhs), ScalarOp::Div)
+        // could use existing operators self * &rhs.powi(-1)
+        // but &rhs.powi(-1) would be a dangling temporary variable
+        // which also have to be returned to caller, e.g. some chained expression
+        // ChainedResult<Scalar, Scalar> which could on dereferencing only return first element 
+    }
+}
+
 
 impl fmt::Display for Scalar<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
